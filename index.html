@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>WebDock — App Launcher</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4f46e5">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WebDock">
+<script>
+window.onerror=function(msg,src,line,col,err){window.parent.postMessage({type:'app-error',message:msg,source:src,lineno:line,colno:col,stack:err&&err.stack||''},'*');};
+window.onunhandledrejection=function(e){window.parent.postMessage({type:'app-error',message:'Unhandled promise rejection: '+(e.reason&&e.reason.message||e.reason||'unknown'),stack:e.reason&&e.reason.stack||''},'*');};
+window.addEventListener('error',function(e){var t=e&&e.target;if(t&&t!==window&&t.tagName==='SCRIPT'){var u=t.src||'';window.parent.postMessage({type:'app-error',message:'Failed to load script'+(u?': '+u:' (inline module)'),source:u},'*');}},true);
+(function(){var _f=window.fetch;window.fetch=function(){var a=arguments,u=typeof a[0]==='string'?a[0]:(a[0]&&a[0].url)||'';var p=_f.apply(this,a);p.then(function(r){if(r.status===500){r.clone().text().then(function(b){window.parent.postMessage({type:'fetch-error',url:u,status:500,body:b},'*');}).catch(function(){window.parent.postMessage({type:'fetch-error',url:u,status:500,body:''},'*');});}}).catch(function(e){window.parent.postMessage({type:'fetch-error',url:u,status:0,body:e.message||'fetch failed'},'*');});return p;};})();
+(function(){var ov,cur,on=false;function box(el){if(!ov){ov=document.createElement('div');ov.style.cssText='position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #2563eb;background:rgba(37,99,235,0.12);border-radius:2px;box-sizing:border-box;';document.documentElement.appendChild(ov);}var r=el.getBoundingClientRect();ov.style.left=r.left+'px';ov.style.top=r.top+'px';ov.style.width=r.width+'px';ov.style.height=r.height+'px';}function esc(s){return (window.CSS&&CSS.escape)?CSS.escape(s):s;}function sel(el){var p=[],n=el;while(n&&n.nodeType===1&&n.tagName!=='HTML'){var s=n.tagName.toLowerCase();if(n.id){p.unshift(s+'#'+esc(n.id));break;}var par=n.parentNode;if(par){var same=Array.prototype.filter.call(par.children,function(c){return c.tagName===n.tagName;});if(same.length>1){s+=':nth-of-type('+(Array.prototype.indexOf.call(same,n)+1)+')';}}p.unshift(s);n=par;}return p.join(' > ');}function clip(s,n){s=s||'';return s.length>n?s.slice(0,n)+'...':s;}function mm(e){if(!on){return;}cur=e.target;box(cur);}function clk(e){if(!on){return;}e.preventDefault();e.stopPropagation();try{var el=e.target;window.parent.postMessage({type:'puter-element-selected',selector:sel(el),tag:el.tagName.toLowerCase(),id:el.id||'',className:(typeof el.className==='string'?el.className:''),text:clip((el.textContent||'').trim(),200),html:clip(el.outerHTML||'',800)},'*');}finally{stop();}}function start(){if(on){return;}on=true;document.addEventListener('mousemove',mm,true);document.addEventListener('click',clk,true);if(document.body){document.body.style.cursor='crosshair';}}function stop(){on=false;if(ov&&ov.parentNode){ov.parentNode.removeChild(ov);}ov=null;document.removeEventListener('mousemove',mm,true);document.removeEventListener('click',clk,true);if(document.body){document.body.style.cursor='';}}window.addEventListener('message',function(e){if(e.source!==window.parent){return;}if(!e.data||e.data.type!=='puter-select-mode'){return;}if(e.data.enabled){start();window.parent.postMessage({type:'puter-select-ready'},'*');}else{stop();}});window.addEventListener('scroll',function(){if(on&&cur){box(cur);}},true);window.addEventListener('resize',function(){if(on&&cur){box(cur);}},true);})();
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="font-inter antialiased text-white select-none overflow-hidden">
+
+  <!-- Animated wallpaper -->
+  <div id="wallpaper" class="fixed inset-0 -z-10"></div>
+  <div class="fixed inset-0 -z-10 bg-black/20"></div>
+
+  <!-- Status bar -->
+  <header class="relative z-20 flex items-center justify-between px-5 pt-4 pb-1 text-[13px] font-semibold tracking-wide">
+    <div id="statusClock">9:41</div>
+    <div class="flex items-center gap-2">
+      <i data-lucide="signal" class="w-4 h-4"></i>
+      <i data-lucide="wifi" class="w-4 h-4"></i>
+      <i data-lucide="battery-full" class="w-5 h-5"></i>
+    </div>
+  </header>
+
+  <!-- Main launcher -->
+  <main class="relative z-10 h-[calc(100dvh-2rem)] flex flex-col">
+
+    <!-- Top area: greeting + auth -->
+    <div class="px-6 pt-3 pb-2 flex items-start justify-between">
+      <div>
+        <div id="bigClock" class="text-5xl font-extrabold leading-none drop-shadow-sm">9:41</div>
+        <div id="bigDate" class="text-sm font-medium text-white/80 mt-1">Monday, January 1</div>
+      </div>
+      <button id="authBtn" class="relative flex items-center gap-2 rounded-full bg-white/15 backdrop-blur-md px-3.5 py-2 text-sm font-semibold hover:bg-white/25 transition">
+        <i data-lucide="log-in" class="w-4 h-4"></i>
+        <span id="authLabel">Sign in</span>
+        <span id="syncBadge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-black/30"></span>
+      </button>
+    </div>
+
+    <!-- Search -->
+    <div class="px-6 pt-1 pb-3">
+      <div class="flex items-center gap-3 rounded-2xl bg-white/15 backdrop-blur-md px-4 py-2.5">
+        <i data-lucide="search" class="w-5 h-5 text-white/70"></i>
+        <input id="search" type="text" placeholder="Search apps or type a URL…" autocomplete="off"
+          class="flex-1 bg-transparent outline-none placeholder-white/60 text-[15px]">
+        <button id="searchGo" class="hidden text-xs font-bold uppercase tracking-wide text-white/80 hover:text-white">Go</button>
+      </div>
+    </div>
+
+    <!-- App pager (swipeable pages) -->
+    <div id="gridWrap" class="flex-1 min-h-0 relative">
+      <div id="pager" class="flex h-full w-full overflow-x-auto snap-x snap-mandatory no-scrollbar"></div>
+
+      <!-- Search results overlay -->
+      <div id="searchResults" class="hidden absolute inset-0 overflow-y-auto px-4 no-scrollbar">
+        <div id="searchGrid" class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-x-2 gap-y-5 pt-2"></div>
+        <div id="emptyState" class="hidden flex-col items-center justify-center text-center py-16 px-8">
+          <div class="w-16 h-16 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center mb-4">
+            <i data-lucide="layout-grid" class="w-8 h-8 text-white/80"></i>
+          </div>
+          <p class="font-semibold text-lg">No matching apps</p>
+          <p class="text-white/70 text-sm mt-1">Try a different search or add a new app.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page dots -->
+    <div id="pageDots" class="flex items-center justify-center gap-2 h-6 pb-1"></div>
+
+    <!-- Dock -->
+    <div class="px-4 pb-5 pt-1">
+      <div class="mx-auto max-w-md flex items-center justify-around rounded-[26px] bg-white/15 backdrop-blur-xl px-3 py-3">
+        <button data-dock="home" class="dock-btn flex flex-col items-center gap-1 text-white/90">
+          <i data-lucide="house" class="w-6 h-6"></i>
+        </button>
+        <button data-dock="add" class="dock-btn flex flex-col items-center gap-1 text-white/90">
+          <i data-lucide="plus" class="w-6 h-6"></i>
+        </button>
+        <button data-dock="edit" class="dock-btn flex flex-col items-center gap-1 text-white/90">
+          <i data-lucide="pencil" class="w-6 h-6"></i>
+        </button>
+        <button data-dock="recents" class="dock-btn relative flex flex-col items-center gap-1 text-white/90">
+          <i data-lucide="layers" class="w-6 h-6"></i>
+          <span id="dockCount" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-black text-[10px] font-bold flex items-center justify-center">0</span>
+        </button>
+        <button data-dock="wallpaper" class="dock-btn flex flex-col items-center gap-1 text-white/90">
+          <i data-lucide="image" class="w-6 h-6"></i>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- App viewer (hosts multiple running apps, one visible at a time) -->
+  <div id="viewer" class="fixed inset-0 z-40 hidden flex-col bg-black">
+    <div class="flex items-center gap-3 px-4 py-2.5 bg-neutral-900 text-white">
+      <button id="viewerHome" class="p-2 -ml-2 rounded-full hover:bg-white/10 transition" title="Home"><i data-lucide="house" class="w-5 h-5"></i></button>
+      <div class="flex-1 min-w-0">
+        <div id="viewerTitle" class="font-semibold text-sm truncate">App</div>
+        <div id="viewerUrl" class="text-[11px] text-white/50 truncate"></div>
+      </div>
+      <button id="viewerReload" class="p-2 rounded-full hover:bg-white/10 transition" title="Reload"><i data-lucide="rotate-cw" class="w-5 h-5"></i></button>
+      <button id="viewerExternal" class="p-2 rounded-full hover:bg-white/10 transition" title="Open in new tab"><i data-lucide="external-link" class="w-5 h-5"></i></button>
+      <button id="viewerSwitch" class="relative p-2 rounded-full hover:bg-white/10 transition" title="App switcher">
+        <i data-lucide="layers" class="w-5 h-5"></i>
+        <span id="viewerCount" class="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-white text-black text-[9px] font-bold flex items-center justify-center">0</span>
+      </button>
+    </div>
+    <!-- Running app frames get injected here -->
+    <div id="frameHost" class="relative flex-1 bg-white"></div>
+  </div>
+
+  <!-- Recents / App switcher overview -->
+  <div id="switcher" class="fixed inset-0 z-50 hidden flex-col bg-black/80 backdrop-blur-xl">
+    <div class="flex items-center justify-between px-5 pt-5 pb-3 text-white">
+      <h2 class="text-lg font-bold">Open apps</h2>
+      <div class="flex items-center gap-2">
+        <button id="closeAllBtn" class="rounded-full bg-white/10 hover:bg-white/20 transition px-3.5 py-1.5 text-xs font-semibold">Close all</button>
+        <button id="switcherClose" class="p-2 rounded-full hover:bg-white/10 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+    </div>
+    <div id="switcherScroll" class="flex-1 overflow-x-auto overflow-y-hidden no-scrollbar px-5">
+      <div id="cardRow" class="flex gap-4 h-full items-center min-w-min pb-6"></div>
+    </div>
+    <div id="switcherEmpty" class="hidden flex-1 flex-col items-center justify-center text-center px-8 text-white">
+      <div class="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-4">
+        <i data-lucide="layers" class="w-8 h-8 text-white/70"></i>
+      </div>
+      <p class="font-semibold text-lg">No open apps</p>
+      <p class="text-white/60 text-sm mt-1">Launch an app to start multitasking.</p>
+    </div>
+  </div>
+
+  <!-- Add / Edit app modal -->
+  <div id="appModal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+    <div class="w-full sm:max-w-md bg-neutral-900 text-white rounded-t-3xl sm:rounded-3xl border border-white/10 p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-5">
+        <h2 id="modalTitle" class="text-lg font-bold">Add app</h2>
+        <button id="modalClose" class="p-2 -mr-2 rounded-full hover:bg-white/10 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="flex items-center gap-4 mb-5">
+        <div id="modalPreview" class="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center overflow-hidden shrink-0"></div>
+        <p class="text-xs text-white/50 leading-relaxed">The icon is fetched automatically from the website. You can override it with a custom image URL below.</p>
+      </div>
+
+      <label class="block text-xs font-semibold text-white/60 mb-1.5">Website URL</label>
+      <input id="fUrl" type="text" inputmode="url" placeholder="e.g. figma.com"
+        class="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-sm outline-none focus:border-white/30 mb-4 placeholder-white/40">
+
+      <label class="block text-xs font-semibold text-white/60 mb-1.5">App name</label>
+      <input id="fName" type="text" placeholder="e.g. Figma"
+        class="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-sm outline-none focus:border-white/30 mb-4 placeholder-white/40">
+
+      <label class="block text-xs font-semibold text-white/60 mb-1.5">Custom icon URL <span class="font-normal">(optional)</span></label>
+      <input id="fIcon" type="text" inputmode="url" placeholder="https://…/icon.png"
+        class="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-sm outline-none focus:border-white/30 mb-4 placeholder-white/40">
+
+      <label class="block text-xs font-semibold text-white/60 mb-2">Accent color</label>
+      <div id="colorRow" class="flex flex-wrap gap-2 mb-6"></div>
+
+      <div class="flex gap-3">
+        <button id="deleteBtn" class="hidden rounded-xl bg-red-500/15 text-red-400 font-semibold px-4 py-3 text-sm hover:bg-red-500/25 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+        <button id="saveBtn" class="flex-1 rounded-xl bg-white text-black font-bold px-4 py-3 text-sm hover:bg-white/90 transition">Save app</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wallpaper picker -->
+  <div id="wallModal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+    <div class="w-full sm:max-w-md bg-neutral-900 text-white rounded-t-3xl sm:rounded-3xl border border-white/10 p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-lg font-bold">Wallpaper</h2>
+        <button id="wallClose" class="p-2 -mr-2 rounded-full hover:bg-white/10 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div id="wallGrid" class="grid grid-cols-3 gap-3"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-28 z-[60] hidden rounded-full bg-neutral-900/95 border border-white/10 px-5 py-2.5 text-sm font-medium shadow-xl"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
