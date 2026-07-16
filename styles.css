@@ -231,6 +231,10 @@
   cursor: pointer;
   transition: transform 0.18s ease, background 0.18s ease;
   position: relative; z-index: 1;
+  touch-action: none;          /* stop Android from claiming the drag gesture */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none; /* no long-press context menu on iOS/Android */
 }
 #fabBtn:active { transform: scale(0.88); }
 #fabBtn.fab-open {
@@ -242,11 +246,15 @@
 #fabBtn.fab-open .fab-icon-open  { display: block; }
 
 .fab-menu {
+  position: absolute;      /* float above the button, out of flow */
+  bottom: 100%;            /* sit directly above #fabBtn */
+  right: 0;                /* align right edges with the button */
+  margin-bottom: 8px;
+  transform-origin: bottom right;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
-  padding-bottom: 12px;
   pointer-events: none;
   opacity: 0;
   transform: translateY(6px) scale(0.96);

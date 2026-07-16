@@ -1143,15 +1143,19 @@ function initFAB() {
     const st = fabDown;
     fabDown = null;
     if (!st) return;
+    // Kill the synthesized mouse/click the browser fires ~300ms after touchend.
+    // Without this, on Android the ghost click can land on a freshly-rendered
+    // menu item (e.g. Annotate) instead of the button.
+    if (e.cancelable) e.preventDefault();
     if (!st.moved) {
       toggleFabMenu();
-      fabSkipNextClick = true; // block synthesized click on iOS
+      fabSkipNextClick = true;
       fabDragWasMoved  = false;
     } else {
       saveFabPos();
       fabDragWasMoved = true;
     }
-  });
+  }, { passive: false });
 
   fabBtn.addEventListener('touchcancel', () => {
     fabDown = null;
