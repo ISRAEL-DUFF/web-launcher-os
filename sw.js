@@ -1,4 +1,4 @@
-const CACHE = 'webdock-v7'; // ← bump this string on every deploy to push an update
+const CACHE = 'webdock-v10'; // ← bump this string on every deploy to push an update
 const SHELL = [
   './',
   './index.html',

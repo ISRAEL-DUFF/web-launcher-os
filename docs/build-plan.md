@@ -65,9 +65,28 @@ Reviewed `/Users/EaziDeFi/projects/web2/web-bos/app/page.tsx`. Key patterns:
 **Status:** Bug  
 **Priority:** High — annotation workflow is broken without it
 
-### Problem
+### ✅ RESOLVED — actual root cause was CSS specificity
 
-Two independent causes have been identified:
+The real bug was **neither** Cause A nor Cause B below. `closeAnnotation()` *was*
+adding the `hidden` class correctly — but `#annotateBar { display: flex }` (ID
+specificity `1,0,0`) overrode Tailwind's `.hidden { display: none }` (class
+specificity `0,1,0`). So the toolbar was `display:flex` **forever**, regardless
+of the `hidden` class. That is the "open forever" symptom.
+
+**Fix:** moved the `display` declaration onto ID-specificity selectors:
+```css
+#annotateBar:not(.hidden) { display: flex; }
+#annotateBar.hidden      { display: none; }
+```
+Verified: after Done, `getComputedStyle(annotateBar).display === "none"`.
+
+The changes below (removing the blocking `toDataURL` from close, replacing the
+document-level click handler with canvas tap-to-dismiss, `closeAllPinCards()`)
+were also applied as defensive hardening, but were not the cause.
+
+---
+
+### Original (incorrect) hypotheses
 
 **Cause A — `saveAnnoPage()` blocking on close.**
 `closeAnnotation()` calls `saveAnnoPage()` first, which calls

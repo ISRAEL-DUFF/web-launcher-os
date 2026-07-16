@@ -1277,7 +1277,12 @@ function openAnnotation() {
 }
 
 function closeAnnotation() {
-  saveAnnoPage();
+  // Tear down any open comment card + backdrop first (no lingering listeners)
+  closeAllPinCards();
+  // Persist pins/text cheaply — the canvas is already saved after each draw,
+  // so we deliberately avoid the heavy toDataURL() here (it blocked the close
+  // on mobile, which is why "Done" appeared to do nothing).
+  persistPinsOnly();
   annotateCanvas.classList.add('hidden');
   annotePins.classList.add('hidden');
   annotateBar.classList.add('hidden');
@@ -1286,6 +1291,23 @@ function closeAnnotation() {
   annoPoints   = [];
   annoHlStart  = null;
   if (fabOpen) renderFabMenu();
+}
+
+// Remove any open comment card
+function closeAllPinCards() {
+  document.querySelectorAll('.anno-pin-card').forEach(el => el.remove());
+}
+
+// Lightweight persist: update only pins/nextPinId in the stored record,
+// preserving the already-saved canvas image. No toDataURL(), so it never blocks.
+function persistPinsOnly() {
+  try {
+    const key = getAnnoPageKey();
+    const existing = JSON.parse(localStorage.getItem(key) || '{}');
+    existing.pins      = annoPins;
+    existing.nextPinId = annoPinId;
+    localStorage.setItem(key, JSON.stringify(existing));
+  } catch {}
 }
 
 function clearAnnotation() {
@@ -1590,8 +1612,8 @@ function renderPin(pin) {
 }
 
 function openPinCard(id) {
-  // Close any open card first
-  document.querySelectorAll('.anno-pin-card').forEach(c => c.remove());
+  // Close any open card + backdrop first
+  closeAllPinCards();
 
   const pin = annoPins.find(p => p.id === id);
   if (!pin) return;
@@ -1621,12 +1643,19 @@ function openPinCard(id) {
   const delBtn = document.createElement('button');
   delBtn.className = 'anno-btn anno-danger';
   delBtn.innerHTML = '<i data-lucide="trash-2" class="w-3 h-3"></i>';
-  delBtn.onclick = () => { deletePin(id); card.remove(); };
 
   const doneBtn = document.createElement('button');
   doneBtn.className = 'anno-btn anno-selected';
   doneBtn.textContent = 'Save';
-  doneBtn.onclick = () => { saveAnnoPage(); card.remove(); };
+
+  // Dismiss the card and persist the comment text (cheap — no toDataURL)
+  const dismissCard = () => {
+    persistPinsOnly();
+    card.remove();
+  };
+  doneBtn.onclick = dismissCard;
+
+  delBtn.onclick = () => { deletePin(id); card.remove(); };
 
   footer.appendChild(delBtn);
   footer.appendChild(doneBtn);
@@ -1638,17 +1667,6 @@ function openPinCard(id) {
   annotePins.appendChild(card);
   refreshIcons();
   textarea.focus();
-
-  // Click outside to close & save
-  setTimeout(() => {
-    document.addEventListener('click', function handler(ev) {
-      if (!card.contains(ev.target)) {
-        saveAnnoPage();
-        card.remove();
-        document.removeEventListener('click', handler);
-      }
-    });
-  }, 0);
 }
 
 function deletePin(id) {
@@ -1662,6 +1680,13 @@ function deletePin(id) {
 function initAnnotation() {
   annotateCanvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    // If a comment card is open, a tap on the canvas (anywhere outside the card,
+    // since the pins layer is pointer-events:none) just dismisses it — no draw.
+    if (document.querySelector('.anno-pin-card')) {
+      closeAllPinCards();
+      persistPinsOnly();
+      return;
+    }
     annotateCanvas.setPointerCapture(e.pointerId);
     if (annoTool === 'highlight') {
       hlStart(e);

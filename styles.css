@@ -327,7 +327,6 @@
 #annotateCanvas.eraser-cursor { cursor: cell; }
 
 #annotateBar {
-  display: flex;
   align-items: center;
   gap: 0;
   padding: 0;
@@ -337,6 +336,11 @@
   -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid rgba(255,255,255,0.1);
 }
+/* Only show as flex when NOT hidden. The ID selector must carry the display
+   rule, otherwise Tailwind's lower-specificity `.hidden { display:none }`
+   loses to `#annotateBar` and the toolbar can never be dismissed. */
+#annotateBar:not(.hidden) { display: flex; }
+#annotateBar.hidden { display: none; }
 
 /* Scrollable tools section */
 .anno-tools-scroll {
