@@ -876,6 +876,392 @@ function toastUpdate() {
   // Don't auto-hide — user should decide when to reload
 }
 
+/* =====================================================================
+   FLOATING ACTION BUTTON
+   ===================================================================== */
+const FAB_POS_KEY = 'webdock_fab_pos_v1';
+const fabEl      = $('fab');
+const fabBtn     = $('fabBtn');
+const fabMenu    = $('fabMenu');
+
+let fabOpen      = false;
+let fabDragging  = false;
+let fabDragMoved = false;
+let fabDragOrigin = { x: 0, y: 0 };
+// pos = { right, bottom } distance from viewport edges — anchors to button corner
+let fabPos       = null;
+
+const FAB_BTN_SIZE = 52;
+
+function fabDefaultPos() {
+  return { right: 20, bottom: 100 };
+}
+
+function applyFabPos(pos) {
+  pos.right  = Math.max(8, Math.min(window.innerWidth  - FAB_BTN_SIZE - 8, pos.right));
+  pos.bottom = Math.max(8, Math.min(window.innerHeight - FAB_BTN_SIZE - 8, pos.bottom));
+  fabEl.style.right  = pos.right  + 'px';
+  fabEl.style.bottom = pos.bottom + 'px';
+  fabEl.style.left   = '';
+  fabEl.style.top    = '';
+}
+
+function saveFabPos() {
+  localStorage.setItem(FAB_POS_KEY, JSON.stringify(fabPos));
+}
+
+function openFabMenu() {
+  fabOpen = true;
+  fabBtn.classList.add('fab-open');
+  renderFabMenu();
+  fabMenu.classList.add('fab-menu-open');
+  refreshIcons();
+}
+
+function closeFabMenu() {
+  fabOpen = false;
+  fabBtn.classList.remove('fab-open');
+  fabMenu.classList.remove('fab-menu-open');
+}
+
+function toggleFabMenu() {
+  fabOpen ? closeFabMenu() : openFabMenu();
+}
+
+function fabItem(iconName, label, onClick, extra = '') {
+  const item = document.createElement('div');
+  item.className = 'fab-item';
+  item.style.cursor = 'pointer';
+  item.innerHTML = `
+    <span class="fab-item-label">${label}</span>
+    <div class="fab-item-btn ${extra}">
+      <i data-lucide="${iconName}" class="w-4 h-4"></i>
+    </div>`;
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeFabMenu();
+    onClick();
+  });
+  return item;
+}
+
+function fabAppItem(task, label) {
+  const item = document.createElement('div');
+  item.className = 'fab-item';
+  const initial = (task.name || task.host || '?').charAt(0).toUpperCase();
+  item.innerHTML = `
+    <span class="fab-item-label">${label}</span>
+    <button class="fab-item-btn" style="padding:0;overflow:hidden;">
+      <div class="fab-app-icon" style="background:${task.color};width:42px;height:42px;border-radius:999px;">
+        <span>${initial}</span>
+      </div>
+    </button>`;
+  // resolve icon
+  resolveFavicon(task.url).then(src => {
+    const iconWrap = item.querySelector('.fab-app-icon');
+    const img = new Image();
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:999px;';
+    img.onload = () => { if (img.naturalWidth > 4) { iconWrap.innerHTML = ''; iconWrap.appendChild(img); } };
+    img.src = src;
+  });
+  item.style.cursor = 'pointer';
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeFabMenu();
+    focusTask(task.taskId);
+  });
+  return item;
+}
+
+function renderFabMenu() {
+  fabMenu.innerHTML = '';
+
+  // --- Context: viewer open ---
+  const inViewer = !viewer.classList.contains('hidden');
+  if (inViewer) {
+    fabMenu.appendChild(fabItem('house', 'Home', goHome));
+    const activeTask = tasks.find(t => t.taskId === activeTaskId);
+    if (activeTask) {
+      fabMenu.appendChild(fabItem('x', `Close ${activeTask.name}`, () => closeTask(activeTask.taskId)));
+    }
+    if (tasks.length > 1) {
+      fabMenu.appendChild(fabItem('layers', 'Switch app', openSwitcher));
+    }
+  }
+
+  // --- Annotate toggle ---
+  const isAnnotating = !$('annotateCanvas').classList.contains('hidden');
+  fabMenu.appendChild(fabItem(
+    isAnnotating ? 'pencil-off' : 'pencil',
+    isAnnotating ? 'Stop annotating' : 'Annotate',
+    () => isAnnotating ? closeAnnotation() : openAnnotation(),
+    isAnnotating ? 'fab-item-active' : ''
+  ));
+
+  // --- Add app ---
+  fabMenu.appendChild(fabItem('plus', 'Add app', openAdd));
+
+  // --- Recent open apps (home context) ---
+  if (!inViewer && tasks.length > 0) {
+    const recent = [...tasks].reverse().slice(0, 3);
+    recent.forEach(t => fabMenu.appendChild(fabAppItem(t, t.name)));
+  }
+}
+
+function initFAB() {
+  // Restore saved position or use default
+  try { fabPos = JSON.parse(localStorage.getItem(FAB_POS_KEY)); } catch {}
+  if (!fabPos || fabPos.right === undefined) fabPos = fabDefaultPos();
+  applyFabPos(fabPos);
+
+  // Add close/open icon twins inside fabBtn
+  fabBtn.innerHTML = `
+    <span class="fab-icon-close"><i data-lucide="zap" class="w-5 h-5"></i></span>
+    <span class="fab-icon-open"><i data-lucide="x" class="w-5 h-5"></i></span>`;
+
+  // Drag + tap via pointer events
+  fabBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    fabBtn.setPointerCapture(e.pointerId);
+    fabDragging   = true;
+    fabDragMoved  = false;
+    // Store where within the button the pointer landed
+    fabDragOrigin = { x: e.clientX, y: e.clientY, right: fabPos.right, bottom: fabPos.bottom };
+  });
+
+  fabBtn.addEventListener('pointermove', (e) => {
+    if (!fabDragging) return;
+    const dx = e.clientX - fabDragOrigin.x;
+    const dy = e.clientY - fabDragOrigin.y;
+    if (!fabDragMoved && Math.hypot(dx, dy) > 5) fabDragMoved = true;
+    if (fabDragMoved) {
+      fabPos = {
+        right:  fabDragOrigin.right  - dx,
+        bottom: fabDragOrigin.bottom + dy,
+      };
+      applyFabPos(fabPos);
+      if (fabOpen) closeFabMenu();
+    }
+  });
+
+  fabBtn.addEventListener('pointerup', () => {
+    fabDragging = false;
+    if (!fabDragMoved) {
+      toggleFabMenu();
+    } else {
+      saveFabPos();
+    }
+    fabDragMoved = false;
+  });
+
+  // Close menu on outside click
+  document.addEventListener('click', (e) => {
+    if (fabOpen && !fabEl.contains(e.target)) closeFabMenu();
+  });
+
+  // Reposition on resize
+  window.addEventListener('resize', () => {
+    applyFabPos(fabPos);
+  });
+
+  refreshIcons();
+}
+
+/* =====================================================================
+   ANNOTATION
+   ===================================================================== */
+const annotateCanvas = $('annotateCanvas');
+const annotateBar    = $('annotateBar');
+const annoCtx        = annotateCanvas.getContext('2d');
+
+const ANNO_COLORS = ['#ffffff','#000000','#ef4444','#fbbf24','#10b981','#3b82f6','#a855f7','#ec4899'];
+const ANNO_SIZES  = [{ label: 'S', size: 3 }, { label: 'M', size: 8 }, { label: 'L', size: 18 }];
+
+let annoTool    = 'pen';
+let annoColor   = '#ffffff';
+let annoSize    = 5;
+let annoDrawing = false;
+let annoLast    = null;
+let annoPoints  = [];
+
+function openAnnotation() {
+  // Size canvas to viewport
+  annotateCanvas.width  = window.innerWidth;
+  annotateCanvas.height = window.innerHeight;
+  annotateCanvas.classList.remove('hidden');
+  annotateBar.classList.remove('hidden');
+  renderAnnotateBar();
+  refreshIcons();
+  // Re-render FAB so it reflects active state
+  if (fabOpen) renderFabMenu();
+}
+
+function closeAnnotation() {
+  annotateCanvas.classList.add('hidden');
+  annotateBar.classList.add('hidden');
+  annoDrawing = false;
+  annoPoints  = [];
+  if (fabOpen) renderFabMenu();
+}
+
+function clearAnnotation() {
+  annoCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+}
+
+function saveAnnotation() {
+  const link    = document.createElement('a');
+  link.download = `annotation-${Date.now()}.png`;
+  link.href     = annotateCanvas.toDataURL('image/png');
+  link.click();
+}
+
+function renderAnnotateBar() {
+  annotateBar.innerHTML = '';
+
+  // Color chips
+  ANNO_COLORS.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'anno-color' + (c === annoColor && annoTool === 'pen' ? ' anno-selected' : '');
+    btn.style.background = c;
+    btn.style.boxShadow  = c === '#ffffff' ? 'inset 0 0 0 1px rgba(255,255,255,0.3)' : '';
+    btn.onclick = () => { annoColor = c; annoTool = 'pen'; annotateCanvas.classList.remove('eraser-cursor'); renderAnnotateBar(); };
+    annotateBar.appendChild(btn);
+  });
+
+  const sep1 = document.createElement('div'); sep1.className = 'anno-sep';
+  annotateBar.appendChild(sep1);
+
+  // Size buttons
+  ANNO_SIZES.forEach(({ label, size }) => {
+    const btn = document.createElement('button');
+    btn.className = 'anno-btn' + (annoSize === size && annoTool === 'pen' ? ' anno-selected' : '');
+    btn.textContent = label;
+    btn.onclick = () => { annoSize = size; annoTool = 'pen'; annotateCanvas.classList.remove('eraser-cursor'); renderAnnotateBar(); };
+    annotateBar.appendChild(btn);
+  });
+
+  const sep2 = document.createElement('div'); sep2.className = 'anno-sep';
+  annotateBar.appendChild(sep2);
+
+  // Eraser
+  const eraser = document.createElement('button');
+  eraser.className = 'anno-btn' + (annoTool === 'eraser' ? ' anno-selected' : '');
+  eraser.innerHTML = '<i data-lucide="eraser" class="w-4 h-4"></i>';
+  eraser.onclick = () => {
+    annoTool = 'eraser';
+    annotateCanvas.classList.add('eraser-cursor');
+    renderAnnotateBar();
+    refreshIcons();
+  };
+  annotateBar.appendChild(eraser);
+
+  // Clear
+  const clear = document.createElement('button');
+  clear.className = 'anno-btn';
+  clear.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
+  clear.onclick = clearAnnotation;
+  annotateBar.appendChild(clear);
+
+  // Save
+  const save = document.createElement('button');
+  save.className = 'anno-btn';
+  save.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i>';
+  save.title = 'Save as PNG';
+  save.onclick = saveAnnotation;
+  annotateBar.appendChild(save);
+
+  // Spacer
+  const spacer = document.createElement('div'); spacer.style.flex = '1';
+  annotateBar.appendChild(spacer);
+
+  // Close
+  const close = document.createElement('button');
+  close.className = 'anno-btn anno-danger';
+  close.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i> <span>Done</span>';
+  close.onclick = closeAnnotation;
+  annotateBar.appendChild(close);
+
+  refreshIcons();
+}
+
+// Smooth drawing helpers
+function getAnnoPos(e) {
+  const r = annotateCanvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : e;
+  return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+
+function annoStrokeStart(pos) {
+  annoDrawing = true;
+  annoPoints  = [pos];
+  annoLast    = pos;
+  annoCtx.beginPath();
+  annoCtx.arc(pos.x, pos.y, (annoTool === 'eraser' ? 20 : annoSize) / 2, 0, Math.PI * 2);
+  setAnnoStyle();
+  annoCtx.fill();
+}
+
+function annoStrokeMove(pos) {
+  if (!annoDrawing) return;
+  annoPoints.push(pos);
+  if (annoPoints.length < 3) return;
+
+  annoCtx.beginPath();
+  setAnnoStyle();
+  const [p0, p1, p2] = annoPoints.slice(-3);
+  const mid1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+  const mid2 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+  annoCtx.moveTo(mid1.x, mid1.y);
+  annoCtx.quadraticCurveTo(p1.x, p1.y, mid2.x, mid2.y);
+  annoCtx.stroke();
+  annoLast = pos;
+}
+
+function annoStrokeEnd() {
+  annoDrawing = false;
+  annoPoints  = [];
+  annoCtx.globalCompositeOperation = 'source-over';
+}
+
+function setAnnoStyle() {
+  if (annoTool === 'eraser') {
+    annoCtx.globalCompositeOperation = 'destination-out';
+    annoCtx.strokeStyle = 'rgba(0,0,0,1)';
+    annoCtx.fillStyle   = 'rgba(0,0,0,1)';
+    annoCtx.lineWidth   = 28;
+  } else {
+    annoCtx.globalCompositeOperation = 'source-over';
+    annoCtx.strokeStyle = annoColor;
+    annoCtx.fillStyle   = annoColor;
+    annoCtx.lineWidth   = annoSize;
+  }
+  annoCtx.lineCap  = 'round';
+  annoCtx.lineJoin = 'round';
+}
+
+function initAnnotation() {
+  // Mouse
+  annotateCanvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    annotateCanvas.setPointerCapture(e.pointerId);
+    annoStrokeStart(getAnnoPos(e));
+  });
+  annotateCanvas.addEventListener('pointermove', (e) => {
+    e.preventDefault();
+    if (e.buttons === 0) return;
+    annoStrokeMove(getAnnoPos(e));
+  });
+  annotateCanvas.addEventListener('pointerup',    annoStrokeEnd);
+  annotateCanvas.addEventListener('pointercancel', annoStrokeEnd);
+
+  // Resize: canvas clears on resize — resize only adjusts size when closed
+  window.addEventListener('resize', () => {
+    if (!annotateCanvas.classList.contains('hidden')) return;
+    annotateCanvas.width  = window.innerWidth;
+    annotateCanvas.height = window.innerHeight;
+  });
+}
+
 /* ---------- Init ---------- */
 async function init() {
   tickClock();
@@ -883,6 +1269,8 @@ async function init() {
   loadAppsLocal();
   await loadWallpaper();
   render();
+  initFAB();
+  initAnnotation();
   // Auth listener — fires immediately with current state
   CloudSync.onAuthChange(onUserChanged);
 }

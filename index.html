@@ -197,6 +197,18 @@ window.addEventListener('error',function(e){var t=e&&e.target;if(t&&t!==window&&
   <!-- Toast -->
   <div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-28 z-[60] hidden rounded-full bg-neutral-900/95 border border-white/10 px-5 py-2.5 text-sm font-medium shadow-xl"></div>
 
+  <!-- Floating Action Button -->
+  <div id="fab" class="fixed z-[59]">
+    <div id="fabMenu" class="fab-menu"></div>
+    <button id="fabBtn" aria-label="Quick actions">
+      <i data-lucide="zap" class="w-5 h-5"></i>
+    </button>
+  </div>
+
+  <!-- Annotation layer -->
+  <canvas id="annotateCanvas" class="fixed inset-0 z-[55] hidden"></canvas>
+  <div id="annotateBar" class="fixed inset-x-0 bottom-0 z-[56] hidden"></div>
+
   <script type="module" src="app.js"></script>
 </body>
 </html>
