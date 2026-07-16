@@ -1601,6 +1601,67 @@ function initAnnotation() {
 }
 
 /* ---------- Init ---------- */
+/* =====================================================================
+   PWA INSTALL PROMPT
+   ===================================================================== */
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  hideInstallBanner();
+  toast('WebDock installed!');
+});
+
+function showInstallBanner() {
+  if (localStorage.getItem('webdock_install_dismissed') === '1') return;
+  let banner = document.getElementById('installBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'installBanner';
+    banner.className = 'install-banner';
+    banner.innerHTML = `
+      <div class="install-banner-icon">
+        <img src="icons/icon-192.png" alt="" width="36" height="36" style="border-radius:10px;">
+      </div>
+      <div class="install-banner-text">
+        <div class="install-banner-title">Add WebDock to home screen</div>
+        <div class="install-banner-sub">Launch instantly, works offline</div>
+      </div>
+      <button id="installBtn" class="install-banner-btn">Install</button>
+      <button id="installDismiss" class="install-banner-dismiss" aria-label="Dismiss">✕</button>`;
+    document.body.appendChild(banner);
+
+    document.getElementById('installBtn').onclick = async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      hideInstallBanner();
+      if (outcome === 'dismissed') localStorage.setItem('webdock_install_dismissed', '1');
+    };
+
+    document.getElementById('installDismiss').onclick = () => {
+      localStorage.setItem('webdock_install_dismissed', '1');
+      hideInstallBanner();
+    };
+  }
+  requestAnimationFrame(() => banner.classList.add('install-banner-show'));
+}
+
+function hideInstallBanner() {
+  const banner = document.getElementById('installBanner');
+  if (!banner) return;
+  banner.classList.remove('install-banner-show');
+  setTimeout(() => banner.remove(), 300);
+}
+
+/* ---------- Init ---------- */
 async function init() {
   tickClock();
   setInterval(tickClock, 10000);

@@ -454,3 +454,62 @@
   justify-content: space-between;
   align-items: center;
 }
+
+/* =====================================================================
+   PWA INSTALL BANNER
+   ===================================================================== */
+.install-banner {
+  position: fixed;
+  bottom: 90px; /* above the dock */
+  left: 12px;
+  right: 12px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(15,15,25,0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  color: #fff;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+  pointer-events: none;
+}
+.install-banner.install-banner-show {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.install-banner-icon { flex-shrink: 0; }
+.install-banner-text { flex: 1; min-width: 0; }
+.install-banner-title { font-size: 13px; font-weight: 700; }
+.install-banner-sub   { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 1px; }
+.install-banner-btn {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s ease, transform 0.12s ease;
+}
+.install-banner-btn:active { background: #4f46e5; transform: scale(0.94); }
+.install-banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 2px;
+  line-height: 1;
+}
+.install-banner-dismiss:hover { color: rgba(255,255,255,0.7); }
