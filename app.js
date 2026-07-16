@@ -1070,111 +1070,241 @@ function initFAB() {
 /* =====================================================================
    ANNOTATION
    ===================================================================== */
-const annotateCanvas = $('annotateCanvas');
-const annotateBar    = $('annotateBar');
-const annoCtx        = annotateCanvas.getContext('2d');
+const annotateCanvas      = $('annotateCanvas');
+const annotateBar         = $('annotateBar');
+const annoHighlightPreview = $('annoHighlightPreview');
+const annotePins          = $('annotePins');
+const annoCtx             = annotateCanvas.getContext('2d');
 
 const ANNO_COLORS = ['#ffffff','#000000','#ef4444','#fbbf24','#10b981','#3b82f6','#a855f7','#ec4899'];
 const ANNO_SIZES  = [{ label: 'S', size: 3 }, { label: 'M', size: 8 }, { label: 'L', size: 18 }];
+const ANNO_HIGHLIGHT_COLORS = ['#fbbf24','#10b981','#3b82f6','#f472b6','#a855f7','#ef4444'];
 
-let annoTool    = 'pen';
-let annoColor   = '#ffffff';
-let annoSize    = 5;
-let annoDrawing = false;
-let annoLast    = null;
-let annoPoints  = [];
+let annoTool          = 'pen';
+let annoColor         = '#ffffff';
+let annoSize          = 5;
+let annoHighlightColor = '#fbbf24';
+let annoDrawing       = false;
+let annoLast          = null;
+let annoPoints        = [];
 
+// Highlight drag state
+let annoHlStart = null;
+
+// Comment pins state
+let annoPins    = [];   // [{id, x, y, text, color}]
+let annoPinId   = 1;
+let annoCommentColor = '#fbbf24';
+
+// ── Persistence ─────────────────────────────────────────────────────────────
+function getAnnoPageKey() {
+  if (activeTaskId) {
+    const t = tasks.find(x => x.taskId === activeTaskId);
+    if (t) return 'webdock_anno_v1_' + t.url;
+  }
+  return 'webdock_anno_v1_home';
+}
+
+function loadAnnoPage() {
+  try {
+    const raw = localStorage.getItem(getAnnoPageKey());
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    // Restore canvas pixels
+    if (data.canvas) {
+      const img = new Image();
+      img.onload = () => annoCtx.drawImage(img, 0, 0);
+      img.src = data.canvas;
+    }
+    // Restore pins
+    if (Array.isArray(data.pins)) {
+      annoPins  = data.pins;
+      annoPinId = (data.nextPinId || 1);
+      renderAllPins();
+    }
+  } catch {}
+}
+
+function saveAnnoPage() {
+  try {
+    const data = {
+      canvas:    annotateCanvas.toDataURL('image/png'),
+      pins:      annoPins,
+      nextPinId: annoPinId,
+    };
+    localStorage.setItem(getAnnoPageKey(), JSON.stringify(data));
+  } catch {}
+}
+
+function clearAnnoPage() {
+  localStorage.removeItem(getAnnoPageKey());
+  annoPins = [];
+  annoPinId = 1;
+  annoCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+  annotePins.innerHTML = '';
+}
+
+// ── Open / Close ─────────────────────────────────────────────────────────────
 function openAnnotation() {
-  // Size canvas to viewport
   annotateCanvas.width  = window.innerWidth;
   annotateCanvas.height = window.innerHeight;
   annotateCanvas.classList.remove('hidden');
+  annotePins.classList.remove('hidden');
   annotateBar.classList.remove('hidden');
+  loadAnnoPage();
   renderAnnotateBar();
   refreshIcons();
-  // Re-render FAB so it reflects active state
   if (fabOpen) renderFabMenu();
 }
 
 function closeAnnotation() {
+  saveAnnoPage();
   annotateCanvas.classList.add('hidden');
+  annotePins.classList.add('hidden');
   annotateBar.classList.add('hidden');
-  annoDrawing = false;
-  annoPoints  = [];
+  annoHighlightPreview.classList.add('hidden');
+  annoDrawing  = false;
+  annoPoints   = [];
+  annoHlStart  = null;
   if (fabOpen) renderFabMenu();
 }
 
 function clearAnnotation() {
-  annoCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+  clearAnnoPage();
 }
 
-function saveAnnotation() {
+function saveAnnotationPNG() {
   const link    = document.createElement('a');
   link.download = `annotation-${Date.now()}.png`;
   link.href     = annotateCanvas.toDataURL('image/png');
   link.click();
 }
 
+// ── Toolbar ───────────────────────────────────────────────────────────────────
 function renderAnnotateBar() {
   annotateBar.innerHTML = '';
 
-  // Color chips
+  // ── Pen colors ──
   ANNO_COLORS.forEach(c => {
     const btn = document.createElement('button');
     btn.className = 'anno-color' + (c === annoColor && annoTool === 'pen' ? ' anno-selected' : '');
     btn.style.background = c;
     btn.style.boxShadow  = c === '#ffffff' ? 'inset 0 0 0 1px rgba(255,255,255,0.3)' : '';
-    btn.onclick = () => { annoColor = c; annoTool = 'pen'; annotateCanvas.classList.remove('eraser-cursor'); renderAnnotateBar(); };
+    btn.title = 'Pen';
+    btn.onclick = () => {
+      annoColor = c; annoTool = 'pen';
+      annotateCanvas.classList.remove('eraser-cursor', 'comment-cursor');
+      renderAnnotateBar();
+    };
     annotateBar.appendChild(btn);
   });
 
-  const sep1 = document.createElement('div'); sep1.className = 'anno-sep';
-  annotateBar.appendChild(sep1);
+  annoSep(annotateBar);
 
-  // Size buttons
+  // ── Pen sizes ──
   ANNO_SIZES.forEach(({ label, size }) => {
     const btn = document.createElement('button');
     btn.className = 'anno-btn' + (annoSize === size && annoTool === 'pen' ? ' anno-selected' : '');
     btn.textContent = label;
-    btn.onclick = () => { annoSize = size; annoTool = 'pen'; annotateCanvas.classList.remove('eraser-cursor'); renderAnnotateBar(); };
+    btn.onclick = () => {
+      annoSize = size; annoTool = 'pen';
+      annotateCanvas.classList.remove('eraser-cursor', 'comment-cursor');
+      renderAnnotateBar();
+    };
     annotateBar.appendChild(btn);
   });
 
-  const sep2 = document.createElement('div'); sep2.className = 'anno-sep';
-  annotateBar.appendChild(sep2);
+  annoSep(annotateBar);
 
-  // Eraser
+  // ── Highlighter ──
+  const hlBtn = document.createElement('button');
+  hlBtn.className = 'anno-btn' + (annoTool === 'highlight' ? ' anno-selected' : '');
+  hlBtn.innerHTML = '<i data-lucide="highlighter" class="w-4 h-4"></i>';
+  hlBtn.title = 'Highlight';
+  hlBtn.onclick = () => {
+    annoTool = 'highlight';
+    annotateCanvas.classList.remove('eraser-cursor', 'comment-cursor');
+    annotateCanvas.classList.add('highlight-cursor');
+    renderAnnotateBar();
+    refreshIcons();
+  };
+  annotateBar.appendChild(hlBtn);
+
+  // Highlight color chips (shown only when highlight active)
+  if (annoTool === 'highlight') {
+    ANNO_HIGHLIGHT_COLORS.forEach(c => {
+      const chip = document.createElement('button');
+      chip.className = 'anno-color anno-hl-chip' + (c === annoHighlightColor ? ' anno-selected' : '');
+      chip.style.background = hexToRgba(c, 0.55);
+      chip.style.border = `2px solid ${c}`;
+      chip.onclick = () => { annoHighlightColor = c; renderAnnotateBar(); };
+      annotateBar.appendChild(chip);
+    });
+    annoSep(annotateBar);
+  }
+
+  // ── Comment pin ──
+  const cmtBtn = document.createElement('button');
+  cmtBtn.className = 'anno-btn' + (annoTool === 'comment' ? ' anno-selected' : '');
+  cmtBtn.innerHTML = '<i data-lucide="message-square-plus" class="w-4 h-4"></i>';
+  cmtBtn.title = 'Add comment';
+  cmtBtn.onclick = () => {
+    annoTool = 'comment';
+    annotateCanvas.classList.remove('eraser-cursor', 'highlight-cursor');
+    annotateCanvas.classList.add('comment-cursor');
+    renderAnnotateBar();
+    refreshIcons();
+  };
+  annotateBar.appendChild(cmtBtn);
+
+  // Comment color chips (shown only when comment active)
+  if (annoTool === 'comment') {
+    ANNO_HIGHLIGHT_COLORS.forEach(c => {
+      const chip = document.createElement('button');
+      chip.className = 'anno-color anno-hl-chip' + (c === annoCommentColor ? ' anno-selected' : '');
+      chip.style.background = c;
+      chip.onclick = () => { annoCommentColor = c; renderAnnotateBar(); };
+      annotateBar.appendChild(chip);
+    });
+    annoSep(annotateBar);
+  }
+
+  annoSep(annotateBar);
+
+  // ── Eraser ──
   const eraser = document.createElement('button');
   eraser.className = 'anno-btn' + (annoTool === 'eraser' ? ' anno-selected' : '');
   eraser.innerHTML = '<i data-lucide="eraser" class="w-4 h-4"></i>';
   eraser.onclick = () => {
     annoTool = 'eraser';
     annotateCanvas.classList.add('eraser-cursor');
+    annotateCanvas.classList.remove('highlight-cursor', 'comment-cursor');
     renderAnnotateBar();
     refreshIcons();
   };
   annotateBar.appendChild(eraser);
 
-  // Clear
+  // ── Clear all ──
   const clear = document.createElement('button');
   clear.className = 'anno-btn';
   clear.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
+  clear.title = 'Clear all';
   clear.onclick = clearAnnotation;
   annotateBar.appendChild(clear);
 
-  // Save
+  // ── Save PNG ──
   const save = document.createElement('button');
   save.className = 'anno-btn';
   save.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i>';
   save.title = 'Save as PNG';
-  save.onclick = saveAnnotation;
+  save.onclick = saveAnnotationPNG;
   annotateBar.appendChild(save);
 
   // Spacer
   const spacer = document.createElement('div'); spacer.style.flex = '1';
   annotateBar.appendChild(spacer);
 
-  // Close
+  // ── Done ──
   const close = document.createElement('button');
   close.className = 'anno-btn anno-danger';
   close.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i> <span>Done</span>';
@@ -1184,11 +1314,27 @@ function renderAnnotateBar() {
   refreshIcons();
 }
 
-// Smooth drawing helpers
+function annoSep(parent) {
+  const d = document.createElement('div'); d.className = 'anno-sep';
+  parent.appendChild(d);
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ── Freehand drawing ──────────────────────────────────────────────────────────
 function getAnnoPos(e) {
   const r = annotateCanvas.getBoundingClientRect();
   const src = e.touches ? e.touches[0] : e;
   return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+
+function getClientPos(e) {
+  return { x: e.clientX, y: e.clientY };
 }
 
 function annoStrokeStart(pos) {
@@ -1221,6 +1367,7 @@ function annoStrokeEnd() {
   annoDrawing = false;
   annoPoints  = [];
   annoCtx.globalCompositeOperation = 'source-over';
+  saveAnnoPage();
 }
 
 function setAnnoStyle() {
@@ -1239,22 +1386,200 @@ function setAnnoStyle() {
   annoCtx.lineJoin = 'round';
 }
 
+// ── Highlight drag ────────────────────────────────────────────────────────────
+function hlStart(e) {
+  annoHlStart = getClientPos(e);
+  annoHighlightPreview.classList.remove('hidden');
+  annoHighlightPreview.style.background = hexToRgba(annoHighlightColor, 0.35);
+  annoHighlightPreview.style.border = `2px solid ${hexToRgba(annoHighlightColor, 0.7)}`;
+  hlUpdatePreview(e);
+}
+
+function hlUpdatePreview(e) {
+  if (!annoHlStart) return;
+  const cur = getClientPos(e);
+  const x = Math.min(annoHlStart.x, cur.x);
+  const y = Math.min(annoHlStart.y, cur.y);
+  const w = Math.abs(cur.x - annoHlStart.x);
+  const h = Math.abs(cur.y - annoHlStart.y);
+  Object.assign(annoHighlightPreview.style, {
+    left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px',
+  });
+}
+
+function hlEnd(e) {
+  if (!annoHlStart) return;
+  const cur = getClientPos(e);
+  const r   = annotateCanvas.getBoundingClientRect();
+  const x   = Math.min(annoHlStart.x, cur.x) - r.left;
+  const y   = Math.min(annoHlStart.y, cur.y) - r.top;
+  const w   = Math.abs(cur.x - annoHlStart.x);
+  const h   = Math.abs(cur.y - annoHlStart.y);
+
+  if (w > 4) {
+    // Draw rounded rectangle highlight on canvas — minimum 18px height for horizontal drags
+    const barH = Math.max(h, 18);
+    annoCtx.save();
+    annoCtx.globalCompositeOperation = 'source-over';
+    annoCtx.globalAlpha = 0.38;
+    annoCtx.fillStyle   = annoHighlightColor;
+    annoCtx.beginPath();
+    annoCtx.roundRect(x, y, w, barH, 4);
+    annoCtx.fill();
+    annoCtx.restore();
+    saveAnnoPage();
+  }
+
+  annoHlStart = null;
+  annoHighlightPreview.classList.add('hidden');
+  annoHighlightPreview.style.width = '0';
+}
+
+// ── Comment pins ──────────────────────────────────────────────────────────────
+function placePin(e) {
+  const client = getClientPos(e);
+  const pin = {
+    id:    annoPinId++,
+    x:     client.x,
+    y:     client.y,
+    text:  '',
+    color: annoCommentColor,
+  };
+  annoPins.push(pin);
+  renderPin(pin);
+  saveAnnoPage();
+  // Open card immediately so user can type
+  openPinCard(pin.id);
+}
+
+function renderAllPins() {
+  annotePins.innerHTML = '';
+  annoPins.forEach(renderPin);
+}
+
+function renderPin(pin) {
+  const el = document.createElement('div');
+  el.className = 'anno-pin';
+  el.dataset.id = pin.id;
+  el.style.left  = pin.x + 'px';
+  el.style.top   = pin.y + 'px';
+  el.style.setProperty('--pin-color', pin.color);
+  el.innerHTML = `<div class="anno-pin-dot">${pin.id}</div>`;
+  el.style.pointerEvents = 'auto';
+  el.addEventListener('click', (ev) => { ev.stopPropagation(); openPinCard(pin.id); });
+  annotePins.appendChild(el);
+}
+
+function openPinCard(id) {
+  // Close any open card first
+  document.querySelectorAll('.anno-pin-card').forEach(c => c.remove());
+
+  const pin = annoPins.find(p => p.id === id);
+  if (!pin) return;
+
+  const card = document.createElement('div');
+  card.className = 'anno-pin-card';
+  card.style.setProperty('--pin-color', pin.color);
+
+  // Position: try to keep on screen
+  const cx = Math.min(pin.x, window.innerWidth  - 240);
+  const cy = Math.min(pin.y + 28, window.innerHeight - 200);
+  card.style.left = Math.max(8, cx) + 'px';
+  card.style.top  = Math.max(8, cy) + 'px';
+
+  const textarea = document.createElement('textarea');
+  textarea.className   = 'anno-pin-textarea';
+  textarea.placeholder = 'Add a comment…';
+  textarea.value       = pin.text;
+  textarea.rows        = 4;
+  textarea.addEventListener('input', () => {
+    pin.text = textarea.value;
+  });
+
+  const footer = document.createElement('div');
+  footer.className = 'anno-pin-footer';
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'anno-btn anno-danger';
+  delBtn.innerHTML = '<i data-lucide="trash-2" class="w-3 h-3"></i>';
+  delBtn.onclick = () => { deletePin(id); card.remove(); };
+
+  const doneBtn = document.createElement('button');
+  doneBtn.className = 'anno-btn anno-selected';
+  doneBtn.textContent = 'Save';
+  doneBtn.onclick = () => { saveAnnoPage(); card.remove(); };
+
+  footer.appendChild(delBtn);
+  footer.appendChild(doneBtn);
+  card.appendChild(textarea);
+  card.appendChild(footer);
+
+  // Cards need pointer events even when pins container is pointer-events:none
+  card.style.pointerEvents = 'auto';
+  annotePins.appendChild(card);
+  refreshIcons();
+  textarea.focus();
+
+  // Click outside to close & save
+  setTimeout(() => {
+    document.addEventListener('click', function handler(ev) {
+      if (!card.contains(ev.target)) {
+        saveAnnoPage();
+        card.remove();
+        document.removeEventListener('click', handler);
+      }
+    });
+  }, 0);
+}
+
+function deletePin(id) {
+  annoPins = annoPins.filter(p => p.id !== id);
+  const el = annotePins.querySelector(`.anno-pin[data-id="${id}"]`);
+  if (el) el.remove();
+  saveAnnoPage();
+}
+
+// ── Canvas pointer routing ────────────────────────────────────────────────────
 function initAnnotation() {
-  // Mouse
   annotateCanvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     annotateCanvas.setPointerCapture(e.pointerId);
-    annoStrokeStart(getAnnoPos(e));
+    if (annoTool === 'highlight') {
+      hlStart(e);
+    } else if (annoTool === 'comment') {
+      // handled on pointerup (tap, not drag)
+    } else {
+      annoStrokeStart(getAnnoPos(e));
+    }
   });
+
   annotateCanvas.addEventListener('pointermove', (e) => {
     e.preventDefault();
     if (e.buttons === 0) return;
-    annoStrokeMove(getAnnoPos(e));
+    if (annoTool === 'highlight') {
+      hlUpdatePreview(e);
+    } else if (annoTool !== 'comment') {
+      annoStrokeMove(getAnnoPos(e));
+    }
   });
-  annotateCanvas.addEventListener('pointerup',    annoStrokeEnd);
-  annotateCanvas.addEventListener('pointercancel', annoStrokeEnd);
 
-  // Resize: canvas clears on resize — resize only adjusts size when closed
+  annotateCanvas.addEventListener('pointerup', (e) => {
+    if (annoTool === 'highlight') {
+      hlEnd(e);
+    } else if (annoTool === 'comment') {
+      placePin(e);
+    } else {
+      annoStrokeEnd();
+    }
+  });
+
+  annotateCanvas.addEventListener('pointercancel', () => {
+    annoHlStart = null;
+    annoHighlightPreview.classList.add('hidden');
+    annoStrokeEnd();
+  });
+
+  // Resize: only adjust canvas when closed (canvas clears on resize)
   window.addEventListener('resize', () => {
     if (!annotateCanvas.classList.contains('hidden')) return;
     annotateCanvas.width  = window.innerWidth;

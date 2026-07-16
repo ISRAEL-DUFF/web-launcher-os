@@ -207,6 +207,8 @@ window.addEventListener('error',function(e){var t=e&&e.target;if(t&&t!==window&&
 
   <!-- Annotation layer -->
   <canvas id="annotateCanvas" class="fixed inset-0 z-[55] hidden"></canvas>
+  <div id="annoHighlightPreview" class="fixed hidden pointer-events-none z-[57]"></div>
+  <div id="annotePins" class="fixed inset-0 z-[58] hidden pointer-events-none"></div>
   <div id="annotateBar" class="fixed inset-x-0 bottom-0 z-[56] hidden"></div>
 
   <script type="module" src="app.js"></script>

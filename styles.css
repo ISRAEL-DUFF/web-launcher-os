@@ -359,3 +359,80 @@
 .anno-btn.anno-selected { background: rgba(99,102,241,0.5); border-color: #818cf8; }
 .anno-btn.anno-danger   { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.45); color: #fca5a5; }
 .anno-btn.anno-danger:active { background: rgba(239,68,68,0.4); }
+
+/* small highlight color chips inside toolbar */
+.anno-hl-chip { width: 20px; height: 20px; border-radius: 5px; }
+
+/* cursor modes */
+#annotateCanvas.highlight-cursor { cursor: crosshair; }
+#annotateCanvas.comment-cursor   { cursor: cell; }
+
+/* highlight drag preview */
+#annoHighlightPreview {
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* ── Comment pins ── */
+#annotePins { pointer-events: none; }
+
+.anno-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.anno-pin-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px 999px 999px 2px;
+  background: var(--pin-color, #fbbf24);
+  color: #000;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  transition: transform 0.12s ease;
+}
+.anno-pin:hover .anno-pin-dot { transform: scale(1.18); }
+
+.anno-pin-card {
+  position: absolute;
+  width: 224px;
+  background: rgba(12,12,18,0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--pin-color, #fbbf24);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  z-index: 62;
+  pointer-events: auto;
+}
+
+.anno-pin-textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+}
+.anno-pin-textarea:focus { border-color: var(--pin-color, #fbbf24); }
+
+.anno-pin-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
