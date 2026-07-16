@@ -892,31 +892,38 @@ function toastUpdate() {
 /* =====================================================================
    FLOATING ACTION BUTTON
    ===================================================================== */
-const FAB_POS_KEY = 'webdock_fab_pos_v1';
-const fabEl      = $('fab');
-const fabBtn     = $('fabBtn');
-const fabMenu    = $('fabMenu');
+const FAB_POS_KEY  = 'webdock_fab_pos_v2'; // v2 = left/top format
+const fabEl       = $('fab');
+const fabBtn      = $('fabBtn');
+const fabMenu     = $('fabMenu');
 
-let fabOpen      = false;
-let fabDragging  = false;
-let fabDragMoved = false;
-let fabDragOrigin = { x: 0, y: 0 };
-// pos = { right, bottom } distance from viewport edges — anchors to button corner
-let fabPos       = null;
+let fabOpen       = false;
+// pos = { x, y } left/top from top-left corner of the viewport
+let fabPos        = null;
 
 const FAB_BTN_SIZE = 52;
+const FAB_MARGIN   = 8;
+
+// Two refs to suppress the spurious click that fires after drag-end
+let fabSkipNextClick = false;
+let fabDragWasMoved  = false;
 
 function fabDefaultPos() {
-  return { right: 20, bottom: 100 };
+  return {
+    x: window.innerWidth  - FAB_BTN_SIZE - FAB_MARGIN,
+    y: window.innerHeight - FAB_BTN_SIZE - 100,
+  };
 }
 
 function applyFabPos(pos) {
-  pos.right  = Math.max(8, Math.min(window.innerWidth  - FAB_BTN_SIZE - 8, pos.right));
-  pos.bottom = Math.max(8, Math.min(window.innerHeight - FAB_BTN_SIZE - 8, pos.bottom));
-  fabEl.style.right  = pos.right  + 'px';
-  fabEl.style.bottom = pos.bottom + 'px';
-  fabEl.style.left   = '';
-  fabEl.style.top    = '';
+  const maxX = window.innerWidth  - FAB_BTN_SIZE - FAB_MARGIN;
+  const maxY = window.innerHeight - FAB_BTN_SIZE - FAB_MARGIN;
+  pos.x = Math.max(FAB_MARGIN, Math.min(pos.x, maxX));
+  pos.y = Math.max(FAB_MARGIN, Math.min(pos.y, maxY));
+  fabEl.style.left   = pos.x + 'px';
+  fabEl.style.top    = pos.y + 'px';
+  fabEl.style.right  = '';
+  fabEl.style.bottom = '';
 }
 
 function saveFabPos() {
@@ -1022,9 +1029,9 @@ function renderFabMenu() {
 }
 
 function initFAB() {
-  // Restore saved position or use default
+  // Restore saved position or use default (v2 = {x,y} left/top format)
   try { fabPos = JSON.parse(localStorage.getItem(FAB_POS_KEY)); } catch {}
-  if (!fabPos || fabPos.right === undefined) fabPos = fabDefaultPos();
+  if (!fabPos || fabPos.x === undefined) fabPos = fabDefaultPos();
   applyFabPos(fabPos);
 
   // Add close/open icon twins inside fabBtn
@@ -1032,39 +1039,134 @@ function initFAB() {
     <span class="fab-icon-close"><i data-lucide="zap" class="w-5 h-5"></i></span>
     <span class="fab-icon-open"><i data-lucide="x" class="w-5 h-5"></i></span>`;
 
-  // Drag + tap via pointer events
-  fabBtn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    fabBtn.setPointerCapture(e.pointerId);
-    fabDragging   = true;
-    fabDragMoved  = false;
-    // Store where within the button the pointer landed
-    fabDragOrigin = { x: e.clientX, y: e.clientY, right: fabPos.right, bottom: fabPos.bottom };
-  });
+  // Shared drag state — used by both pointer and touch handlers
+  // { id, startX, startY, offsetX, offsetY, moved }
+  let fabDown = null;
 
-  fabBtn.addEventListener('pointermove', (e) => {
-    if (!fabDragging) return;
-    const dx = e.clientX - fabDragOrigin.x;
-    const dy = e.clientY - fabDragOrigin.y;
-    if (!fabDragMoved && Math.hypot(dx, dy) > 5) fabDragMoved = true;
-    if (fabDragMoved) {
+  // Detect touch environment (mirrors reference: pointer events only on non-touch)
+  const isTouchEnv = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  /* ---- POINTER EVENTS (desktop / non-touch only) ---- */
+  if (!isTouchEnv) {
+    fabBtn.addEventListener('pointerdown', (e) => {
+      fabSkipNextClick = false; // reset on every new press
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const rect = e.currentTarget.getBoundingClientRect();
+      fabDown = {
+        id:      e.pointerId,
+        startX:  e.clientX,
+        startY:  e.clientY,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        moved:   false,
+      };
+    });
+
+    fabBtn.addEventListener('pointermove', (e) => {
+      const st = fabDown;
+      if (!st) return;
+      const dx = e.clientX - st.startX;
+      const dy = e.clientY - st.startY;
+      if (!st.moved && Math.hypot(dx, dy) > 20) {
+        st.moved = true;
+        fabSkipNextClick = true; // set as soon as drag threshold crossed
+      }
+      if (st.moved) {
+        fabPos = {
+          x: e.clientX - st.offsetX,
+          y: e.clientY - st.offsetY,
+        };
+        applyFabPos(fabPos);
+        if (fabOpen) closeFabMenu();
+      }
+    });
+
+    fabBtn.addEventListener('pointerup', (e) => {
+      const st = fabDown;
+      fabDown = null;
+      if (!st) return;
+      e.currentTarget.releasePointerCapture(st.id);
+      const isClick = Math.hypot(e.clientX - st.startX, e.clientY - st.startY) <= 20;
+      if (isClick) {
+        toggleFabMenu();
+        fabSkipNextClick = true;  // block the subsequent click event
+        fabDragWasMoved  = false;
+      } else {
+        saveFabPos();
+        fabDragWasMoved = true;
+      }
+    });
+
+    fabBtn.addEventListener('pointercancel', () => {
+      fabDown = null;
+      fabSkipNextClick = false;
+      fabDragWasMoved  = false;
+    });
+  }
+
+  /* ---- TOUCH EVENTS (always — iOS Safari primary path) ---- */
+  fabBtn.addEventListener('touchstart', (e) => {
+    fabSkipNextClick = false;
+    fabDragWasMoved  = false;
+    const t = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    fabDown = {
+      id:      0,
+      startX:  t.clientX,
+      startY:  t.clientY,
+      offsetX: t.clientX - rect.left,
+      offsetY: t.clientY - rect.top,
+      moved:   false,
+    };
+  }, { passive: true });
+
+  fabBtn.addEventListener('touchmove', (e) => {
+    const st = fabDown;
+    if (!st) return;
+    const t = e.touches[0];
+    if (!st.moved && Math.hypot(t.clientX - st.startX, t.clientY - st.startY) > 20) {
+      st.moved = true;
+      fabSkipNextClick = true;
+    }
+    if (st.moved) {
+      e.preventDefault(); // prevent scroll only after threshold
       fabPos = {
-        right:  fabDragOrigin.right  - dx,
-        bottom: fabDragOrigin.bottom - dy,
+        x: t.clientX - st.offsetX,
+        y: t.clientY - st.offsetY,
       };
       applyFabPos(fabPos);
       if (fabOpen) closeFabMenu();
     }
-  });
+  }, { passive: false });
 
-  fabBtn.addEventListener('pointerup', () => {
-    fabDragging = false;
-    if (!fabDragMoved) {
+  fabBtn.addEventListener('touchend', (e) => {
+    const st = fabDown;
+    fabDown = null;
+    if (!st) return;
+    if (!st.moved) {
       toggleFabMenu();
+      fabSkipNextClick = true; // block synthesized click on iOS
+      fabDragWasMoved  = false;
     } else {
       saveFabPos();
+      fabDragWasMoved = true;
     }
-    fabDragMoved = false;
+  });
+
+  fabBtn.addEventListener('touchcancel', () => {
+    fabDown = null;
+    fabSkipNextClick = false;
+    fabDragWasMoved  = false;
+  });
+
+  /* ---- CLICK — suppress post-drag/post-tap spurious fires ---- */
+  fabBtn.addEventListener('click', () => {
+    if (fabSkipNextClick || fabDragWasMoved) {
+      fabSkipNextClick = false;
+      fabDragWasMoved  = false;
+      return;
+    }
+    toggleFabMenu();
   });
 
   // Close menu on outside click
@@ -1072,7 +1174,7 @@ function initFAB() {
     if (fabOpen && !fabEl.contains(e.target)) closeFabMenu();
   });
 
-  // Reposition on resize
+  // Reposition on resize (clamp to new viewport bounds)
   window.addEventListener('resize', () => {
     applyFabPos(fabPos);
   });

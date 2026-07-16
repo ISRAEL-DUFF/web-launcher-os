@@ -27,25 +27,34 @@ Additionally, the `right/bottom` positioning math is counterintuitive:
 `right` decreases as you move right, `bottom` decreases as you move down,
 so the delta arithmetic is error-prone and has already produced one sign bug.
 
+### Reference implementation studied
+
+Reviewed `/Users/EaziDeFi/projects/web2/web-bos/app/page.tsx`. Key patterns:
+
+| Pattern | Detail |
+|---|---|
+| Positioning | `left/top` from top-left corner — no coordinate inversion |
+| Grab offset | Store `offsetX/offsetY` (pointer-within-button) so `nx = clientX - offsetX` |
+| Pointer capture | `setPointerCapture` on the button keeps the pointer locked |
+| iOS Safari fallback | Separate `onTouchStart/Move/End/Cancel` handlers alongside pointer events |
+| Click suppression | Two refs: `skipNextClickRef` + `dragWasMoveRef` prevent double-toggle |
+| Drag threshold | 20px (not 5px) — avoids accidental drags on tap |
+
 ### Proposed fix
 
-1. Attach `pointermove` and `pointerup` to **`document`** (not `fabBtn`) so
-   fast drags never lose the pointer.
-2. Switch FAB positioning from `right/bottom` to **`left/top`** — these map
-   directly to `clientX/clientY` with no coordinate inversion:
-   ```
-   left = originLeft + (currentX - startX)
-   top  = originTop  + (currentY - startY)
-   ```
-3. Clamp `left/top` to keep the button inside viewport bounds.
-4. Save position as `{ x, y }` from top-left corner (rename localStorage key
-   to `webdock_fab_pos_v2` to avoid stale data from the old format).
-5. On `pointerup`: if total travel < 5 px, treat as tap → toggle menu;
-   otherwise treat as drag → save position.
+1. Switch FAB positioning from `right/bottom` to **`left/top`**.
+2. On `pointerdown`: record `offsetX/offsetY` within button + `startX/startY`.
+3. On `pointermove`: compute `nx = clientX - offsetX`, `ny = clientY - offsetY`,
+   clamp to viewport, update position. Mark `moved = true` once travel > 20px.
+4. On `pointerup`: if `!moved` → toggle menu; if `moved` → save position.
+   Set `skipNextClickRef = true` in both cases.
+5. Add `onTouchStart/Move/End/Cancel` as an iOS Safari fallback (same logic).
+6. `onFabClick`: skip and reset if either ref is true.
+7. Rename localStorage key to `webdock_fab_pos_v2` to clear stale `right/bottom` data.
 
 ### Open questions
 
-- [ ] User to share reference implementation before work starts.
+- [x] ~~User to share reference implementation~~ — reviewed above.
 - [ ] Should the FAB snap to the nearest edge (left/right) when released, like
   iOS assistive touch? Or free-float anywhere?
 
