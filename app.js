@@ -1215,6 +1215,14 @@ let annoPins    = [];   // [{id, x, y, text, color}]
 let annoPinId   = 1;
 let annoCommentColor = '#fbbf24';
 
+// Vector mark model (Phase 3) — strokes + highlights stored structurally so each
+// can be listed and deleted individually. Canvas is a pure render target now.
+//   { type:'stroke',    id, color, size, points:[{x,y},…] }
+//   { type:'highlight', id, color, x, y, w, h }
+let annoMarks         = [];
+let annoMarkId        = 1;
+let annoCurrentStroke = null;  // stroke being drawn
+
 // ── Persistence ─────────────────────────────────────────────────────────────
 function getAnnoPageKey() {
   if (activeTaskId) {
@@ -1226,15 +1234,17 @@ function getAnnoPageKey() {
 
 function loadAnnoPage() {
   try {
+    annoMarks = []; annoMarkId = 1;
     const raw = localStorage.getItem(getAnnoPageKey());
-    if (!raw) return;
+    if (!raw) { redrawMarks(); return; }
     const data = JSON.parse(raw);
-    // Restore canvas pixels
-    if (data.canvas) {
-      const img = new Image();
-      img.onload = () => annoCtx.drawImage(img, 0, 0);
-      img.src = data.canvas;
+    // Vector marks (v2). Legacy v1 raster canvas is intentionally not migrated —
+    // it can't be vectorised — but pins (structured) always carry over.
+    if (Array.isArray(data.marks)) {
+      annoMarks  = data.marks;
+      annoMarkId = data.nextMarkId || (annoMarks.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1);
     }
+    redrawMarks();
     // Restore pins
     if (Array.isArray(data.pins)) {
       annoPins  = data.pins;
@@ -1247,9 +1257,11 @@ function loadAnnoPage() {
 function saveAnnoPage() {
   try {
     const data = {
-      canvas:    annotateCanvas.toDataURL('image/png'),
-      pins:      annoPins,
-      nextPinId: annoPinId,
+      v:          2,
+      marks:      annoMarks,
+      nextMarkId: annoMarkId,
+      pins:       annoPins,
+      nextPinId:  annoPinId,
     };
     localStorage.setItem(getAnnoPageKey(), JSON.stringify(data));
   } catch {}
@@ -1259,8 +1271,11 @@ function clearAnnoPage() {
   localStorage.removeItem(getAnnoPageKey());
   annoPins = [];
   annoPinId = 1;
+  annoMarks = [];
+  annoMarkId = 1;
   annoCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
   annotePins.innerHTML = '';
+  renderMarksPanel();
 }
 
 // ── Open / Close ─────────────────────────────────────────────────────────────
@@ -1277,12 +1292,11 @@ function openAnnotation() {
 }
 
 function closeAnnotation() {
-  // Tear down any open comment card + backdrop first (no lingering listeners)
+  // Tear down any open comment card first (no lingering listeners)
   closeAllPinCards();
-  // Persist pins/text cheaply — the canvas is already saved after each draw,
-  // so we deliberately avoid the heavy toDataURL() here (it blocked the close
-  // on mobile, which is why "Done" appeared to do nothing).
-  persistPinsOnly();
+  closeMarksPanel();
+  // Vector save is cheap now (no toDataURL), so a full save on close is fine.
+  saveAnnoPage();
   annotateCanvas.classList.add('hidden');
   annotePins.classList.add('hidden');
   annotateBar.classList.add('hidden');
@@ -1300,14 +1314,9 @@ function closeAllPinCards() {
 
 // Lightweight persist: update only pins/nextPinId in the stored record,
 // preserving the already-saved canvas image. No toDataURL(), so it never blocks.
+// Kept for callers; the vector save is already cheap so this is just an alias.
 function persistPinsOnly() {
-  try {
-    const key = getAnnoPageKey();
-    const existing = JSON.parse(localStorage.getItem(key) || '{}');
-    existing.pins      = annoPins;
-    existing.nextPinId = annoPinId;
-    localStorage.setItem(key, JSON.stringify(existing));
-  } catch {}
+  saveAnnoPage();
 }
 
 function clearAnnotation() {
@@ -1429,6 +1438,14 @@ function renderAnnotateBar() {
   };
   tools.appendChild(eraser);
 
+  // ── Marks list (manage individual marks) ──
+  const listBtn = document.createElement('button');
+  listBtn.className = 'anno-btn';
+  listBtn.innerHTML = '<i data-lucide="list" class="w-4 h-4"></i>';
+  listBtn.title = 'Manage marks';
+  listBtn.onclick = toggleMarksPanel;
+  tools.appendChild(listBtn);
+
   // ── Clear all ──
   const clear = document.createElement('button');
   clear.className = 'anno-btn';
@@ -1482,8 +1499,10 @@ function annoStrokeStart(pos) {
   annoDrawing = true;
   annoPoints  = [pos];
   annoLast    = pos;
+  // Begin recording this stroke as a vector mark
+  annoCurrentStroke = { type: 'stroke', id: annoMarkId++, color: annoColor, size: annoSize, points: [pos] };
   annoCtx.beginPath();
-  annoCtx.arc(pos.x, pos.y, (annoTool === 'eraser' ? 20 : annoSize) / 2, 0, Math.PI * 2);
+  annoCtx.arc(pos.x, pos.y, annoSize / 2, 0, Math.PI * 2);
   setAnnoStyle();
   annoCtx.fill();
 }
@@ -1491,6 +1510,7 @@ function annoStrokeStart(pos) {
 function annoStrokeMove(pos) {
   if (!annoDrawing) return;
   annoPoints.push(pos);
+  if (annoCurrentStroke) annoCurrentStroke.points.push(pos);
   if (annoPoints.length < 3) return;
 
   annoCtx.beginPath();
@@ -1508,23 +1528,104 @@ function annoStrokeEnd() {
   annoDrawing = false;
   annoPoints  = [];
   annoCtx.globalCompositeOperation = 'source-over';
-  saveAnnoPage();
+  if (annoCurrentStroke && annoCurrentStroke.points.length) {
+    annoMarks.push(annoCurrentStroke);
+    saveAnnoPage();
+    renderMarksPanel();
+  }
+  annoCurrentStroke = null;
 }
 
 function setAnnoStyle() {
-  if (annoTool === 'eraser') {
-    annoCtx.globalCompositeOperation = 'destination-out';
-    annoCtx.strokeStyle = 'rgba(0,0,0,1)';
-    annoCtx.fillStyle   = 'rgba(0,0,0,1)';
-    annoCtx.lineWidth   = 28;
-  } else {
-    annoCtx.globalCompositeOperation = 'source-over';
-    annoCtx.strokeStyle = annoColor;
-    annoCtx.fillStyle   = annoColor;
-    annoCtx.lineWidth   = annoSize;
-  }
+  annoCtx.globalCompositeOperation = 'source-over';
+  annoCtx.strokeStyle = annoColor;
+  annoCtx.fillStyle   = annoColor;
+  annoCtx.lineWidth   = annoSize;
   annoCtx.lineCap  = 'round';
   annoCtx.lineJoin = 'round';
+}
+
+// ── Vector rendering ──────────────────────────────────────────────────────────
+function redrawMarks() {
+  annoCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+  for (const m of annoMarks) {
+    if (m.type === 'stroke')         drawStrokeMark(m);
+    else if (m.type === 'highlight') drawHighlightMark(m);
+  }
+}
+
+function drawStrokeMark(m) {
+  const pts = m.points;
+  if (!pts || !pts.length) return;
+  annoCtx.save();
+  annoCtx.globalCompositeOperation = 'source-over';
+  annoCtx.strokeStyle = m.color;
+  annoCtx.fillStyle   = m.color;
+  annoCtx.lineWidth   = m.size;
+  annoCtx.lineCap  = 'round';
+  annoCtx.lineJoin = 'round';
+  // Single dot
+  annoCtx.beginPath();
+  annoCtx.arc(pts[0].x, pts[0].y, m.size / 2, 0, Math.PI * 2);
+  annoCtx.fill();
+  if (pts.length >= 3) {
+    annoCtx.beginPath();
+    annoCtx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mid = { x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 };
+      annoCtx.quadraticCurveTo(pts[i].x, pts[i].y, mid.x, mid.y);
+    }
+    annoCtx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    annoCtx.stroke();
+  } else if (pts.length === 2) {
+    annoCtx.beginPath();
+    annoCtx.moveTo(pts[0].x, pts[0].y);
+    annoCtx.lineTo(pts[1].x, pts[1].y);
+    annoCtx.stroke();
+  }
+  annoCtx.restore();
+}
+
+function drawHighlightMark(m) {
+  annoCtx.save();
+  annoCtx.globalCompositeOperation = 'source-over';
+  annoCtx.globalAlpha = 0.38;
+  annoCtx.fillStyle   = m.color;
+  annoCtx.beginPath();
+  annoCtx.roundRect(m.x, m.y, m.w, m.h, 4);
+  annoCtx.fill();
+  annoCtx.restore();
+}
+
+// ── Eraser: delete whole marks by hit-test, then replay ───────────────────────
+function eraseAt(pos) {
+  // Topmost first
+  for (let i = annoMarks.length - 1; i >= 0; i--) {
+    const m = annoMarks[i];
+    if (m.type === 'highlight') {
+      if (pos.x >= m.x - 4 && pos.x <= m.x + m.w + 4 &&
+          pos.y >= m.y - 4 && pos.y <= m.y + m.h + 4) {
+        deleteMark(m.id);
+        return true;
+      }
+    } else if (m.type === 'stroke') {
+      const tol = (m.size / 2) + 8;
+      for (const p of m.points) {
+        if (Math.hypot(p.x - pos.x, p.y - pos.y) <= tol) {
+          deleteMark(m.id);
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function deleteMark(id) {
+  annoMarks = annoMarks.filter(m => m.id !== id);
+  redrawMarks();
+  saveAnnoPage();
+  renderMarksPanel();
 }
 
 // ── Highlight drag ────────────────────────────────────────────────────────────
@@ -1558,17 +1659,13 @@ function hlEnd(e) {
   const h   = Math.abs(cur.y - annoHlStart.y);
 
   if (w > 4) {
-    // Draw rounded rectangle highlight on canvas — minimum 18px height for horizontal drags
+    // Record as a vector highlight mark — minimum 18px height for horizontal drags
     const barH = Math.max(h, 18);
-    annoCtx.save();
-    annoCtx.globalCompositeOperation = 'source-over';
-    annoCtx.globalAlpha = 0.38;
-    annoCtx.fillStyle   = annoHighlightColor;
-    annoCtx.beginPath();
-    annoCtx.roundRect(x, y, w, barH, 4);
-    annoCtx.fill();
-    annoCtx.restore();
+    const mark = { type: 'highlight', id: annoMarkId++, color: annoHighlightColor, x, y, w, h: barH };
+    annoMarks.push(mark);
+    drawHighlightMark(mark);
     saveAnnoPage();
+    renderMarksPanel();
   }
 
   annoHlStart = null;
@@ -1674,6 +1771,99 @@ function deletePin(id) {
   const el = annotePins.querySelector(`.anno-pin[data-id="${id}"]`);
   if (el) el.remove();
   saveAnnoPage();
+  renderMarksPanel();
+}
+
+// ── Marks panel (individual mark management) ──────────────────────────────────
+let annoMarksPanelEl = null;
+
+function ensureMarksPanel() {
+  if (annoMarksPanelEl) return annoMarksPanelEl;
+  const p = document.createElement('div');
+  p.className = 'anno-marks-panel';
+  p.innerHTML = `
+    <div class="anno-marks-head">
+      <span class="anno-marks-title">Marks</span>
+      <button class="anno-btn" data-close><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <div class="anno-marks-list"></div>`;
+  p.querySelector('[data-close]').onclick = closeMarksPanel;
+  document.body.appendChild(p);
+  annoMarksPanelEl = p;
+  return p;
+}
+
+function marksPanelOpen() {
+  return !!(annoMarksPanelEl && annoMarksPanelEl.classList.contains('open'));
+}
+
+function toggleMarksPanel() {
+  marksPanelOpen() ? closeMarksPanel() : openMarksPanel();
+}
+
+function openMarksPanel() {
+  const p = ensureMarksPanel();
+  p.classList.add('open');
+  renderMarksPanel();
+  requestAnimationFrame(() => p.classList.add('anno-marks-shown'));
+}
+
+function closeMarksPanel() {
+  if (!annoMarksPanelEl) return;
+  annoMarksPanelEl.classList.remove('open', 'anno-marks-shown');
+}
+
+function renderMarksPanel() {
+  if (!marksPanelOpen()) return;
+  const list  = annoMarksPanelEl.querySelector('.anno-marks-list');
+  const title = annoMarksPanelEl.querySelector('.anno-marks-title');
+  list.innerHTML = '';
+  const total = annoMarks.length + annoPins.length;
+  title.textContent = `Marks (${total})`;
+  if (total === 0) {
+    list.innerHTML = '<div class="anno-marks-empty">No marks yet.<br>Draw, highlight, or drop a comment.</div>';
+    return;
+  }
+
+  // Pen strokes + highlights
+  annoMarks.forEach(m => {
+    const isStroke = m.type === 'stroke';
+    const swatch = isStroke
+      ? `<span class="anno-mark-swatch" style="background:${m.color}"></span>`
+      : `<span class="anno-mark-swatch" style="background:${hexToRgba(m.color, 0.5)};border:1.5px solid ${m.color}"></span>`;
+    const row = document.createElement('div');
+    row.className = 'anno-mark-row';
+    row.innerHTML = `
+      ${swatch}
+      <span class="anno-mark-label">${isStroke ? 'Pen stroke' : 'Highlight'}</span>
+      <button class="anno-btn anno-danger anno-mark-del" data-del><i data-lucide="trash-2" class="w-3 h-3"></i></button>`;
+    row.querySelector('[data-del]').onclick = () => deleteMark(m.id);
+    list.appendChild(row);
+  });
+
+  // Comments (pins)
+  annoPins.forEach(pin => {
+    const preview = (pin.text || '').trim().slice(0, 40) || 'Empty comment';
+    const row = document.createElement('div');
+    row.className = 'anno-mark-row';
+    row.innerHTML = `
+      <span class="anno-mark-swatch anno-mark-pin" style="background:${pin.color}">${pin.id}</span>
+      <span class="anno-mark-label anno-mark-clickable">${escapeHtml(preview)}</span>
+      <button class="anno-btn anno-danger anno-mark-del" data-del><i data-lucide="trash-2" class="w-3 h-3"></i></button>`;
+    row.querySelector('.anno-mark-label').onclick = () => { closeMarksPanel(); flashPin(pin.id); openPinCard(pin.id); };
+    row.querySelector('[data-del]').onclick = () => deletePin(pin.id);
+    list.appendChild(row);
+  });
+
+  refreshIcons();
+}
+
+// Briefly emphasise a pin when its row is tapped
+function flashPin(id) {
+  const el = annotePins.querySelector(`.anno-pin[data-id="${id}"]`);
+  if (!el) return;
+  el.classList.add('anno-pin-flash');
+  setTimeout(() => el.classList.remove('anno-pin-flash'), 700);
 }
 
 // ── Canvas pointer routing ────────────────────────────────────────────────────
@@ -1692,6 +1882,8 @@ function initAnnotation() {
       hlStart(e);
     } else if (annoTool === 'comment') {
       // handled on pointerup (tap, not drag)
+    } else if (annoTool === 'eraser') {
+      eraseAt(getAnnoPos(e));  // delete whole marks under the pointer
     } else {
       annoStrokeStart(getAnnoPos(e));
     }
@@ -1702,6 +1894,8 @@ function initAnnotation() {
     if (e.buttons === 0) return;
     if (annoTool === 'highlight') {
       hlUpdatePreview(e);
+    } else if (annoTool === 'eraser') {
+      eraseAt(getAnnoPos(e));  // drag to erase across marks
     } else if (annoTool !== 'comment') {
       annoStrokeMove(getAnnoPos(e));
     }
@@ -1723,11 +1917,12 @@ function initAnnotation() {
     annoStrokeEnd();
   });
 
-  // Resize: only adjust canvas when closed (canvas clears on resize)
+  // Resize: canvas clears on resize — resize then replay the vector marks so
+  // nothing is lost (works whether the layer is open or closed).
   window.addEventListener('resize', () => {
-    if (!annotateCanvas.classList.contains('hidden')) return;
     annotateCanvas.width  = window.innerWidth;
     annotateCanvas.height = window.innerHeight;
+    if (!annotateCanvas.classList.contains('hidden')) redrawMarks();
   });
 }
 

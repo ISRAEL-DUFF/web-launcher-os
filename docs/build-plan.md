@@ -122,8 +122,29 @@ and can prevent the Done button's own `onclick` from seeing a clean DOM state.
 
 ## Phase 3 — Individual annotation management
 
-**Status:** Feature  
+**Status:** ✅ DONE (verified 2026-07-16)  
 **Priority:** Medium — also unblocks Phase 5 (book export)
+
+### What shipped
+- Vector `marks[]` model (`{v:2}`) replaces the canvas dataURL. Strokes and
+  highlights are stored structurally; the canvas is a pure render target
+  (`redrawMarks()` replays on load / after any delete / on resize).
+- **Side benefit:** `saveAnnoPage()` no longer calls `toDataURL()` — every save
+  is now cheap, which also retroactively hardens the Phase 2 close path.
+- Eraser redefined: tap/drag deletes whole marks by hit-test (`eraseAt`), then
+  replays — consistent with individual management.
+- Marks panel (right slide-in sheet, `list` toolbar icon): lists every stroke /
+  highlight / comment with a type swatch + per-row trash; comment rows open the
+  card. Live count in the header.
+- Verified via dispatched pointer events: stroke+highlight+comment recorded as
+  vectors; deleting the highlight left stroke+comment intact and replayed; marks
+  survived a full reload and repainted.
+
+### Known follow-up (not blocking)
+- FAB radial menu expands up-and-left; when the FAB sits near the top/left edge
+  the menu renders off-screen. Should flip direction based on available space.
+
+### (original design notes below)
 
 ### Problem
 
