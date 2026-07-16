@@ -716,6 +716,8 @@ function buildColorRow() {
   });
 }
 
+let resolvedIconSrc = ''; // tracks the auto-resolved favicon for the current modal URL
+
 function updatePreview() {
   const url    = normalizeUrl($('fUrl').value);
   const custom = $('fIcon').value.trim();
@@ -729,16 +731,27 @@ function updatePreview() {
   prev.appendChild(img);
 
   if (custom) {
+    resolvedIconSrc = custom;
     img.src = custom;
     img.style.display = 'block';
-    img.onerror = () => { img.style.display = 'none'; };
+    img.onerror = () => { img.style.display = 'none'; resolvedIconSrc = ''; };
   } else if (url) {
-    resolveFavicon(url).then(src => applyIcon(img, src, null));
+    resolvedIconSrc = '';
+    resolveFavicon(url).then(src => {
+      resolvedIconSrc = src;
+      applyIcon(img, src, null);
+    });
+  } else {
+    resolvedIconSrc = '';
   }
 }
 
 $('fUrl').addEventListener('input', updatePreview);
-$('fUrl').addEventListener('blur',  () => { if (!$('fName').value.trim()) { $('fName').value = guessName(normalizeUrl($('fUrl').value)); updatePreview(); } });
+$('fUrl').addEventListener('blur',  () => {
+  const url = normalizeUrl($('fUrl').value);
+  if (!$('fName').value.trim()) $('fName').value = guessName(url);
+  updatePreview();
+});
 $('fName').addEventListener('input', updatePreview);
 $('fIcon').addEventListener('input', updatePreview);
 
@@ -746,7 +759,7 @@ $('saveBtn').onclick = async () => {
   const url = normalizeUrl($('fUrl').value);
   if (!url) { toast('Enter a valid website URL'); return; }
   const name   = $('fName').value.trim() || guessName(url);
-  const icon   = $('fIcon').value.trim();
+  const icon   = $('fIcon').value.trim() || resolvedIconSrc;
   const page   = editIndex > -1 ? apps[editIndex].page : Math.min(currentPage, pageCount - 1);
   const record = { id: editIndex > -1 ? apps[editIndex].id : cryptoId(), name, url, color: modalColor, icon, page };
   if (editIndex > -1) apps[editIndex] = record;
@@ -1037,7 +1050,7 @@ function initFAB() {
     if (fabDragMoved) {
       fabPos = {
         right:  fabDragOrigin.right  - dx,
-        bottom: fabDragOrigin.bottom + dy,
+        bottom: fabDragOrigin.bottom - dy,
       };
       applyFabPos(fabPos);
       if (fabOpen) closeFabMenu();
@@ -1183,6 +1196,10 @@ function saveAnnotationPNG() {
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 function renderAnnotateBar() {
   annotateBar.innerHTML = '';
+  // Scrollable tools wrapper + fixed Done button side-by-side
+  const tools = document.createElement('div');
+  tools.className = 'anno-tools-scroll';
+  annotateBar.appendChild(tools);
 
   // ── Pen colors ──
   ANNO_COLORS.forEach(c => {
@@ -1196,10 +1213,10 @@ function renderAnnotateBar() {
       annotateCanvas.classList.remove('eraser-cursor', 'comment-cursor');
       renderAnnotateBar();
     };
-    annotateBar.appendChild(btn);
+    tools.appendChild(btn);
   });
 
-  annoSep(annotateBar);
+  annoSep(tools);
 
   // ── Pen sizes ──
   ANNO_SIZES.forEach(({ label, size }) => {
@@ -1211,10 +1228,10 @@ function renderAnnotateBar() {
       annotateCanvas.classList.remove('eraser-cursor', 'comment-cursor');
       renderAnnotateBar();
     };
-    annotateBar.appendChild(btn);
+    tools.appendChild(btn);
   });
 
-  annoSep(annotateBar);
+  annoSep(tools);
 
   // ── Highlighter ──
   const hlBtn = document.createElement('button');
@@ -1228,7 +1245,7 @@ function renderAnnotateBar() {
     renderAnnotateBar();
     refreshIcons();
   };
-  annotateBar.appendChild(hlBtn);
+  tools.appendChild(hlBtn);
 
   // Highlight color chips (shown only when highlight active)
   if (annoTool === 'highlight') {
@@ -1238,9 +1255,9 @@ function renderAnnotateBar() {
       chip.style.background = hexToRgba(c, 0.55);
       chip.style.border = `2px solid ${c}`;
       chip.onclick = () => { annoHighlightColor = c; renderAnnotateBar(); };
-      annotateBar.appendChild(chip);
+      tools.appendChild(chip);
     });
-    annoSep(annotateBar);
+    annoSep(tools);
   }
 
   // ── Comment pin ──
@@ -1255,7 +1272,7 @@ function renderAnnotateBar() {
     renderAnnotateBar();
     refreshIcons();
   };
-  annotateBar.appendChild(cmtBtn);
+  tools.appendChild(cmtBtn);
 
   // Comment color chips (shown only when comment active)
   if (annoTool === 'comment') {
@@ -1264,12 +1281,12 @@ function renderAnnotateBar() {
       chip.className = 'anno-color anno-hl-chip' + (c === annoCommentColor ? ' anno-selected' : '');
       chip.style.background = c;
       chip.onclick = () => { annoCommentColor = c; renderAnnotateBar(); };
-      annotateBar.appendChild(chip);
+      tools.appendChild(chip);
     });
-    annoSep(annotateBar);
+    annoSep(tools);
   }
 
-  annoSep(annotateBar);
+  annoSep(tools);
 
   // ── Eraser ──
   const eraser = document.createElement('button');
@@ -1282,7 +1299,7 @@ function renderAnnotateBar() {
     renderAnnotateBar();
     refreshIcons();
   };
-  annotateBar.appendChild(eraser);
+  tools.appendChild(eraser);
 
   // ── Clear all ──
   const clear = document.createElement('button');
@@ -1290,7 +1307,7 @@ function renderAnnotateBar() {
   clear.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
   clear.title = 'Clear all';
   clear.onclick = clearAnnotation;
-  annotateBar.appendChild(clear);
+  tools.appendChild(clear);
 
   // ── Save PNG ──
   const save = document.createElement('button');
@@ -1298,15 +1315,11 @@ function renderAnnotateBar() {
   save.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i>';
   save.title = 'Save as PNG';
   save.onclick = saveAnnotationPNG;
-  annotateBar.appendChild(save);
+  tools.appendChild(save);
 
-  // Spacer
-  const spacer = document.createElement('div'); spacer.style.flex = '1';
-  annotateBar.appendChild(spacer);
-
-  // ── Done ──
+  // ── Done — outside the scroll area, always visible ──
   const close = document.createElement('button');
-  close.className = 'anno-btn anno-danger';
+  close.className = 'anno-btn anno-danger anno-done';
   close.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i> <span>Done</span>';
   close.onclick = closeAnnotation;
   annotateBar.appendChild(close);

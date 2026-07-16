@@ -321,17 +321,35 @@
 #annotateBar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  gap: 0;
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: rgba(8,8,12,0.85);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Scrollable tools section */
+.anno-tools-scroll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
   overflow-x: auto;
   scrollbar-width: none;
+  padding: 10px 10px 10px 14px;
 }
-#annotateBar::-webkit-scrollbar { display: none; }
+.anno-tools-scroll::-webkit-scrollbar { display: none; }
+
+/* Done button — pinned to the right, never scrolls away */
+.anno-done {
+  flex-shrink: 0;
+  margin: 10px 14px 10px 6px;
+  border-left: 1px solid rgba(255,255,255,0.1);
+  padding-left: 14px;
+  border-radius: 0 9px 9px 0;
+}
 
 .anno-color {
   width: 26px; height: 26px; border-radius: 999px;
